@@ -1,7 +1,7 @@
 FROM alpine:3.18
 
-# Cài đặt Nginx, module RTMP, FFmpeg, bash và thêm công cụ dos2unix
-RUN apk update && apk add --no-cache nginx nginx-mod-rtmp ffmpeg bash dos2unix
+# Cài đặt Nginx, module RTMP, FFmpeg và bash
+RUN apk update && apk add --no-cache nginx nginx-mod-rtmp ffmpeg bash
 
 # Tạo thư mục đồng bộ đường dẫn
 RUN mkdir -p /run/nginx/stream
@@ -10,14 +10,12 @@ RUN mkdir -p /run/nginx/stream
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY entrypoint.sh /entrypoint.sh
 
-# ÉP SỬA ĐỊNH DẠNG FILE SANG CHUẨN LINUX (Bao ăn chắc)
-RUN dos2unix /entrypoint.sh
-
-# Cấp quyền chạy cho file script
+# Dùng lệnh sed (gốc của Linux) để tự động xóa sạch ký tự \r của Windows nếu có
+RUN sed -i 's/\r$//' /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Mở port mạng
 EXPOSE 80 1935
 
-# Chạy script khi khởi động
-ENTRYPOINT ["/entrypoint.sh"]
+# 🔥 THAY ĐỔI QUAN TRỌNG NHẤT: Gọi đích danh 'sh' để chạy file, né sạch lỗi format error
+ENTRYPOINT ["sh", "/entrypoint.sh"]
