@@ -10,11 +10,9 @@ wget -O /var/www/html/logo.png "https://github.com/vchessdev/hls-stream/blob/mai
 
 # 3. LINK M3U8 NGUỒN (Thay link m3u8 bro muốn tiếp sóng vào đây)
 M3U8_URL="https://raw.githubusercontent.com/vchessdev/hls-stream/refs/heads/main/playlist.m3u8?token=GHSAT0AAAAAAEAXV6SER45NVL772TAWAQH22SHYFSA"
-
-# 4. Chạy FFmpeg chèn logo vào góc dưới bên phải (cách lề phải 20px, lề dưới 20px)
-# Do phải chèn logo nên bắt buộc phải render lại bằng libx264 và aac
+# Chạy FFmpeg hạ cấu hình tối đa để Render Free gánh nổi
 ffmpeg -re -i "$M3U8_URL" -i /var/www/html/logo.png \
--filter_complex "overlay=main_w-overlay_w-20:main_h-overlay_h-20" \
--c:v libx264 -preset superfast -maxrate 1500k -bufsize 3000k \
--c:a aac -b:a 128k \
+-filter_complex "[0:v][1:v]overlay=main_w-overlay_w-20:main_h-overlay_h-20,scale=1280:-2" \
+-c:v libx264 -preset ultrafast -crf 28 -maxrate 1000k -bufsize 2000k \
+-c:a copy \
 -f flv rtmp://localhost/hls_live/live247
