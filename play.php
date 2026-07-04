@@ -1,6 +1,6 @@
 <?php
 /**
- * play.php - HLS Master Playlist (Adaptive Bitrate)
+ * play.php - HLS Master Playlist (Adaptive Bitrate 3 qualities)
  */
 
 error_reporting(0);
@@ -22,11 +22,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $base_url = 'https://xeno.env.pm';
 
 echo "#EXTM3U\n";
-echo "#EXT-X-VERSION:3\n\n";
+echo "#EXT-X-VERSION:3\n";
+echo "#EXT-X-INDEPENDENT-SEGMENTS\n\n";
 
-echo "#EXT-X-STREAM-INF:BANDWIDTH=2800000,AVERAGE-BANDWIDTH=2500000,RESOLUTION=1920x1080,FRAME-RATE=30.000,CODECS=\"avc1.640028,mp4a.40.2\"\n";
+// 1080p - Highest Bitrate
+echo "#EXT-X-STREAM-INF:BANDWIDTH=4500000,AVERAGE-BANDWIDTH=4000000,RESOLUTION=1920x1080,FRAME-RATE=30.000,CODECS=\"avc1.640028,mp4a.40.2\"\n";
 echo $base_url . "/sub_playlist.php?quality=1080p\n\n";
 
-echo "#EXT-X-STREAM-INF:BANDWIDTH=600000,AVERAGE-BANDWIDTH=500000,RESOLUTION=640x360,FRAME-RATE=25.000,CODECS=\"avc1.4d001e,mp4a.40.2\"\n";
+// 720p - Medium Bitrate
+echo "#EXT-X-STREAM-INF:BANDWIDTH=2500000,AVERAGE-BANDWIDTH=2000000,RESOLUTION=1280x720,FRAME-RATE=30.000,CODECS=\"avc1.4d401f,mp4a.40.2\"\n";
+echo $base_url . "/sub_playlist.php?quality=720p\n\n";
+
+// 360p - Low Bitrate
+echo "#EXT-X-STREAM-INF:BANDWIDTH=800000,AVERAGE-BANDWIDTH=600000,RESOLUTION=640x360,FRAME-RATE=25.000,CODECS=\"avc1.4d001e,mp4a.40.2\"\n";
 echo $base_url . "/sub_playlist.php?quality=360p\n";
+
 exit();
