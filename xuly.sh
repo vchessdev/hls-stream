@@ -1,86 +1,93 @@
 #!/bin/bash
-# Process segments with ABR (360p, 720p, 1080p) + watermark logo
-# Usage: ./process_abr.sh
 
-set -e
+QUALITY_CONFIGS=(
+    "1080p:1920x1080:4500k:aac"
+    "720p:1280x720:2500k:aac"
+    "360p:640x360:800k:aac"
+)
 
-# ============ CONFIG ============
-SOURCE_DIR="."
-OUTPUT_DIR="./abr"
-LOGO_PATH="./logo.png"
-TOTAL_SEGMENTS=95
-SEGMENT_DURATION=4
+BASE_URL="https://xeno.env.pm/stream"
+SEGMENT_DIR="."
+OUTPUT_DIR="./hls"
+LOGO="./logo.png"
 
-# ============ CHECK ============
-if [ ! -f "$LOGO_PATH" ]; then
-    echo "❌ Logo không tìm thấy: $LOGO_PATH"
-    exit 1
-fi
+mkdir -p "$OUTPUT_DIR"
 
-if [ ! -d "$SOURCE_DIR" ]; then
-    echo "❌ Source directory không tìm thấy: $SOURCE_DIR"
-    exit 1
-fi
+# 1️⃣ Generate Master Playlist
+cat > "$OUTPUT_DIR/master.m3u8" << 'EOF'
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-INDEPENDENT-SEGMENTS
+EOF
 
-# ============ CREATE DIRS ============
-mkdir -p "$OUTPUT_DIR/360p"
-mkdir -p "$OUTPUT_DIR/720p"
-mkdir -p "$OUTPUT_DIR/1080p"
-
-echo "🚀 Bắt đầu xử lý $TOTAL_SEGMENTS segments với ABR + watermark..."
-echo "📁 Source: $SOURCE_DIR"
-echo "📁 Output: $OUTPUT_DIR"
-echo "🎬 Logo: $LOGO_PATH"
-echo ""
-
-START_TIME=$(date +%s)
-
-# ============ PROCESS LOOP ============
-for i in $(seq 0 $((TOTAL_SEGMENTS - 1))); do
-    SEGMENT=$(printf "finished_%03d.ts" $i)
-    INPUT="$SOURCE_DIR/$SEGMENT"
+for config in "${QUALITY_CONFIGS[@]}"; do
+    IFS=':' read -r quality res bitrate audio <<< "$config"
+    width=$(echo $res | cut -d'x' -f1)
+    height=$(echo $res | cut -d'x' -f2)
     
-    if [ ! -f "$INPUT" ]; then
-        echo "⚠️  Không tìm thấy: $SEGMENT (skip)"
-        continue
-    fi
-    
-    PERCENT=$((($i + 1) * 100 / TOTAL_SEGMENTS))
-    echo "[$PERCENT%] Processing: $SEGMENT"
-    
-    # ===== 1080p (Full HD) =====
-    ffmpeg -i "$INPUT" -i "$LOGO_PATH" \
-        -filter_complex "[1:v]scale=200:-1[logo];[0:v][logo]overlay=main_w-overlay_w-20:main_h-overlay_h-20" \
-        -c:v libx264 -preset ultrafast -crf 18 \
-        -c:a aac -b:a 128k \
-        "$OUTPUT_DIR/1080p/$SEGMENT" -y -loglevel error 2>/dev/null
-    
-    # ===== 720p (HD) =====
-    ffmpeg -i "$INPUT" -i "$LOGO_PATH" \
-        -filter_complex "[0:v]scale=1280:720[v0];[1:v]scale=140:-1[logo];[v0][logo]overlay=main_w-overlay_w-20:main_h-overlay_h-20" \
-        -c:v libx264 -preset ultrafast -crf 20 \
-        -c:a aac -b:a 96k \
-        "$OUTPUT_DIR/720p/$SEGMENT" -y -loglevel error 2>/dev/null
-    
-    # ===== 360p (SD) =====
-    ffmpeg -i "$INPUT" -i "$LOGO_PATH" \
-        -filter_complex "[0:v]scale=640:360[v0];[1:v]scale=80:-1[logo];[v0][logo]overlay=main_w-overlay_w-20:main_h-overlay_h-20" \
-        -c:v libx264 -preset ultrafast -crf 22 \
-        -c:a aac -b:a 64k \
-        "$OUTPUT_DIR/360p/$SEGMENT" -y -loglevel error 2>/dev/null
-    
+    cat >> "$OUTPUT_DIR/master.m3u8" << EOF
+#EXT-X-STREAM-INF:BANDWIDTH=${bitrate}000,AVERAGE-BANDWIDTH=$((bitrate*800/1000))000,RESOLUTION=${res},CODECS="avc1.640028,${audio}"
+${quality}/playlist.m3u8
+EOF
 done
 
-END_TIME=$(date +%s)
-DURATION=$((END_TIME - START_TIME))
+# 2️⃣ Generate variant playlists + encode segments with logo
+for config in "${QUALITY_CONFIGS[@]}"; do
+    IFS=':' read -r quality res bitrate audio <<< "$config"
+    width=$(echo $res | cut -d'x' -f1)
+    height=$(echo $res | cut -d'x' -f2)
+    
+    QUAL_DIR="$OUTPUT_DIR/$quality"
+    mkdir -p "$QUAL_DIR"
+    
+    # Calculate logo size (10% of video width)
+    logo_width=$((width / 10))
+    logo_height=$((height / 10))
+    
+    # Encode segments with logo
+    for i in {0..46}; do
+        input_seg=$(printf "${SEGMENT_DIR}/finished_%03d.ts" $i)
+        output_seg=$(printf "${QUAL_DIR}/segment_%03d.ts" $i)
+        
+        [ ! -f "$input_seg" ] && continue
+        
+        echo "[$quality] Encoding segment $i with logo..."
+        
+        if [ "$quality" = "1080p" ]; then
+            # 1080p: copy video + overlay logo
+            ffmpeg -i "$input_seg" \
+                -i "$LOGO" \
+                -filter_complex "[0:v][1:v]overlay=W-w-20:20:enable='between(t\,0\,100)'" \
+                -c:v libx264 -preset ultrafast \
+                -c:a copy "$output_seg" -y -loglevel error 2>/dev/null
+        else
+            # Scale + logo
+            ffmpeg -i "$input_seg" \
+                -i "$LOGO" \
+                -filter_complex "[0:v]scale=${width}:${height}[scaled];[scaled][1:v]overlay=W-w-20:20:enable='between(t\,0\,100)'" \
+                -c:v libx264 -preset ultrafast -b:v ${bitrate}k \
+                -c:a aac -b:a 128k "$output_seg" -y -loglevel error 2>/dev/null
+        fi
+    done
+    
+    # Create variant playlist
+    cat > "${QUAL_DIR}/playlist.m3u8" << EOF2
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:5
+#EXT-X-MEDIA-SEQUENCE:0
+EOF2
+    
+    for i in {0..46}; do
+        seg=$(printf "segment_%03d.ts" $i)
+        [ ! -f "${QUAL_DIR}/${seg}" ] && continue
+        
+        echo "#EXTINF:4.0," >> "${QUAL_DIR}/playlist.m3u8"
+        echo "${BASE_URL}/${quality}/${seg}" >> "${QUAL_DIR}/playlist.m3u8"
+    done
+    
+    echo "#EXT-X-ENDLIST" >> "${QUAL_DIR}/playlist.m3u8"
+done
 
-echo ""
-echo "✨ Hoàn thành! Tổng thời gian: ${DURATION}s"
-echo "✅ 1080p segments: $OUTPUT_DIR/1080p/"
-echo "✅ 720p segments:  $OUTPUT_DIR/720p/"
-echo "✅ 360p segments:  $OUTPUT_DIR/360p/"
-echo ""
-echo "📊 Kiểm tra file:"
-echo "   1080p: $(ls -1 $OUTPUT_DIR/1080p/ 2>/dev/null | wc -l) files"
-echo "   720p:  $(ls -1 $OUTPUT_DIR/720p/ 2>/dev/null | wc -l) files"
-echo "   360p:  $(ls -1 $OUTPUT_DIR/360p/ 2>/dev/null | wc -l) files"
+echo "✅ HLS streaming with logo complete!"
+echo "📌 Master playlist: $BASE_URL/master.m3u8"
